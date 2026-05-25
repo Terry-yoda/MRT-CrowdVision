@@ -1,0 +1,1503 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MRT CrowdVision · YOLO12 人頭辨識</title>
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap" rel="stylesheet">
+<!-- onnxruntime-web (WebAssembly + WebGPU backend) -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
+<style>
+:root,[data-theme="light"]{
+  --text-xs:clamp(.75rem,.7rem + .25vw,.875rem);
+  --text-sm:clamp(.875rem,.8rem + .35vw,1rem);
+  --text-base:clamp(1rem,.95rem + .25vw,1.125rem);
+  --text-lg:clamp(1.125rem,1rem + .75vw,1.5rem);
+  --text-xl:clamp(1.5rem,1.2rem + 1.25vw,2.25rem);
+  --sp1:.25rem;--sp2:.5rem;--sp3:.75rem;--sp4:1rem;
+  --sp5:1.25rem;--sp6:1.5rem;--sp8:2rem;--sp10:2.5rem;--sp12:3rem;
+  --r-sm:.375rem;--r-md:.5rem;--r-lg:.75rem;--r-xl:1rem;--r-full:9999px;
+  --tx:180ms cubic-bezier(.16,1,.3,1);
+  --color-bg:#0e1117;--color-surface:#161b22;--color-surface-2:#1c2128;
+  --color-surface-off:#21262d;--color-surface-dyn:#2d333b;
+  --color-div:#30363d;--color-border:#3d444d;
+  --color-text:#e6edf3;--color-muted:#8b949e;--color-faint:#484f58;
+  --color-primary:#2dbbcc;--color-primary-h:#1d9bab;
+  --color-success:#3fb950;--color-warn:#e3b341;--color-err:#f85149;
+  --shadow-sm:0 1px 3px oklch(0 0 0/.3);
+  --shadow-md:0 4px 12px oklch(0 0 0/.4);
+  --shadow-lg:0 12px 32px oklch(0 0 0/.5);
+  --font-body:"Satoshi","Inter",sans-serif;
+}
+[data-theme="light"]{
+  --color-bg:#f0f2f5;--color-surface:#fff;--color-surface-2:#f6f8fa;
+  --color-surface-off:#eaeef2;--color-surface-dyn:#d0d7de;
+  --color-div:#d8dee4;--color-border:#c6cdd5;
+  --color-text:#1f2328;--color-muted:#656d76;--color-faint:#a0aab3;
+  --shadow-sm:0 1px 3px oklch(.2 .01 250/.08);
+  --shadow-md:0 4px 12px oklch(.2 .01 250/.1);
+  --shadow-lg:0 12px 32px oklch(.2 .01 250/.14);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+body{min-height:100dvh;font-family:var(--font-body);font-size:var(--text-base);color:var(--color-text);background:var(--color-bg);transition:background .3s,color .3s}
+button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
+input,select,textarea{font:inherit;color:inherit}
+img,video,canvas{display:block;max-width:100%}
+
+/* === TOPBAR === */
+.topbar{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;gap:var(--sp4);
+  padding:var(--sp3) var(--sp6);
+  background:color-mix(in oklab,var(--color-surface) 90%,transparent);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--color-div);
+}
+.topbar-logo{display:flex;align-items:center;gap:var(--sp2)}
+.topbar-logo svg{color:var(--color-primary)}
+.topbar-title{font-size:var(--text-sm);font-weight:700;letter-spacing:.02em}
+.topbar-title span{color:var(--color-muted);font-weight:400}
+.tab-bar{display:flex;gap:2px;padding:var(--sp1);background:var(--color-surface-off);border-radius:var(--r-md)}
+.tab-btn{padding:var(--sp1) var(--sp3);font-size:var(--text-xs);font-weight:500;border-radius:calc(var(--r-md) - 2px);transition:background var(--tx),color var(--tx);color:var(--color-muted)}
+.tab-btn.active{background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-sm)}
+.tab-btn:hover:not(.active){color:var(--color-text);background:oklch(from var(--color-surface) l c h/.5)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:var(--sp3)}
+.status-dot{display:flex;align-items:center;gap:var(--sp2);font-size:var(--text-xs);color:var(--color-muted)}
+.pulse{width:8px;height:8px;border-radius:var(--r-full);background:var(--color-success);animation:pulse 2s ease-in-out infinite}
+.pulse.idle{background:var(--color-muted);animation:none}
+.pulse.running{background:var(--color-primary);animation:pulse 1s ease-in-out infinite}
+.pulse.warn{background:var(--color-warn);animation:none}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 oklch(from var(--color-success) l c h/.4)}50%{box-shadow:0 0 0 5px oklch(from var(--color-success) l c h/0)}}
+.icon-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:var(--r-md);background:var(--color-surface-off);transition:background var(--tx)}
+.icon-btn:hover{background:var(--color-surface-dyn)}
+
+/* === LAYOUT === */
+.app{display:flex;flex-direction:column;min-height:100dvh}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{
+  width:288px;min-width:288px;
+  border-right:1px solid var(--color-div);
+  overflow-y:auto;padding:var(--sp4);
+  display:flex;flex-direction:column;gap:var(--sp4);
+  background:var(--color-surface);
+}
+.content{flex:1;overflow-y:auto;padding:var(--sp6)}
+
+/* === SIDEBAR === */
+.sec-title{font-size:var(--text-xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--color-faint)}
+.form-group{display:flex;flex-direction:column;gap:var(--sp1)}
+.form-label{font-size:var(--text-xs);color:var(--color-muted)}
+.form-input,.form-select{
+  padding:var(--sp2) var(--sp3);font-size:var(--text-sm);
+  background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--r-md);
+  outline:none;transition:border-color var(--tx),box-shadow var(--tx)
+}
+.form-input:focus,.form-select:focus{border-color:var(--color-primary);box-shadow:0 0 0 3px oklch(from var(--color-primary) l c h/.15)}
+.form-select{appearance:none;cursor:pointer}
+.divider{height:1px;background:var(--color-div)}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp2);padding:var(--sp2) var(--sp4);font-size:var(--text-sm);font-weight:500;border-radius:var(--r-md);transition:background var(--tx),color var(--tx),border-color var(--tx);white-space:nowrap}
+.btn-primary{background:var(--color-primary);color:#fff}
+.btn-primary:hover{background:var(--color-primary-h)}
+.btn-primary:disabled{background:var(--color-surface-dyn);color:var(--color-muted);cursor:not-allowed}
+.btn-ghost{background:transparent;color:var(--color-muted);border:1px solid var(--color-border)}
+.btn-ghost:hover{background:var(--color-surface-off);color:var(--color-text)}
+.btn-sm{padding:var(--sp1) var(--sp3);font-size:var(--text-xs)}
+.input-row{display:flex;gap:var(--sp2);align-items:flex-end}
+.input-row .form-group{flex:1}
+
+/* === FREQ PANEL === */
+.freq-panel{
+  padding:var(--sp3);
+  background:color-mix(in oklab,var(--color-primary) 6%,var(--color-surface-2));
+  border:1px solid oklch(from var(--color-primary) l c h/.2);border-radius:var(--r-lg)
+}
+.freq-val{font-size:var(--text-lg);font-weight:700;color:var(--color-primary);line-height:1}
+.freq-unit{font-size:var(--text-xs);color:var(--color-muted)}
+.slider{
+  width:100%;margin-top:var(--sp3);
+  -webkit-appearance:none;appearance:none;
+  height:4px;border-radius:var(--r-full);
+  background:var(--color-surface-dyn);outline:none;cursor:pointer
+}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:var(--r-full);background:var(--color-primary);cursor:pointer;transition:transform .15s}
+.slider::-webkit-slider-thumb:hover{transform:scale(1.2)}
+.freq-hints{display:flex;justify-content:space-between;font-size:var(--text-xs);color:var(--color-faint);margin-top:var(--sp1)}
+
+/* === MODEL LOAD AREA === */
+.model-zone{
+  display:flex;flex-direction:column;gap:var(--sp2);
+  padding:var(--sp3);
+  background:var(--color-surface-2);border:1px dashed var(--color-border);border-radius:var(--r-lg);
+  text-align:center;cursor:pointer;transition:border-color var(--tx),background var(--tx)
+}
+.model-zone:hover{border-color:var(--color-primary);background:color-mix(in oklab,var(--color-primary) 5%,var(--color-surface-2))}
+.model-zone.loaded{border-style:solid;border-color:var(--color-success);background:color-mix(in oklab,var(--color-success) 6%,var(--color-surface-2))}
+.model-zone-icon{font-size:1.5rem}
+.model-zone-text{font-size:var(--text-xs);color:var(--color-muted)}
+.model-zone-name{font-size:var(--text-xs);font-weight:600;color:var(--color-success)}
+
+/* === CAMERA CARDS === */
+.cam-list{display:flex;flex-direction:column;gap:var(--sp2)}
+.cam-item{
+  display:flex;align-items:center;gap:var(--sp3);
+  padding:var(--sp2) var(--sp3);
+  background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--r-md);
+  cursor:pointer;transition:background var(--tx),border-color var(--tx)
+}
+.cam-item:hover{background:var(--color-surface-off)}
+.cam-item.active{border-color:var(--color-primary);background:color-mix(in oklab,var(--color-primary) 8%,var(--color-surface-2))}
+.cam-badge{width:28px;height:28px;min-width:28px;border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;font-size:var(--text-xs);font-weight:700;background:var(--color-surface-dyn)}
+.cam-info{flex:1;min-width:0}
+.cam-name{font-size:var(--text-sm);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cam-url{font-size:var(--text-xs);color:var(--color-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cam-dot{width:7px;height:7px;border-radius:var(--r-full);min-width:7px}
+.cam-dot.on{background:var(--color-success)}
+.cam-dot.off{background:var(--color-err)}
+.cam-dot.scanning{background:var(--color-primary);animation:pulse 1s infinite}
+
+/* === SCAN INFO === */
+.scan-info{display:flex;flex-direction:column;gap:var(--sp2);padding:var(--sp3);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--r-lg)}
+.scan-row{display:flex;justify-content:space-between;align-items:center}
+.scan-key{font-size:var(--text-xs);color:var(--color-muted)}
+.scan-val{font-size:var(--text-xs);font-weight:600;font-variant-numeric:tabular-nums}
+
+/* === TRAIN VISUAL === */
+.train-visual-wrap{margin-bottom:var(--sp6);overflow-x:auto;padding-bottom:var(--sp2)}
+.train-visual{
+  display:flex;align-items:stretch;gap:0;min-width:max-content;
+  padding:var(--sp4) var(--sp2);
+  background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--r-xl)
+}
+.train-connector{width:8px;min-width:8px;background:var(--color-surface-dyn);margin-block:var(--sp4)}
+.car-block{
+  width:120px;min-width:120px;display:flex;flex-direction:column;align-items:center;gap:var(--sp2);
+  padding:var(--sp3);border-radius:var(--r-lg);cursor:pointer;
+  transition:background var(--tx),transform .2s
+}
+.car-block:hover{transform:translateY(-2px);background:var(--color-surface-2)}
+.car-block.selected{background:color-mix(in oklab,var(--color-primary) 10%,var(--color-surface))}
+.car-block.scanning-now{background:color-mix(in oklab,var(--color-primary) 15%,var(--color-surface))}
+.car-number{font-size:var(--text-xs);font-weight:700;color:var(--color-muted);letter-spacing:.05em}
+.car-icon{
+  width:80px;height:44px;background:var(--color-surface-off);
+  border:1.5px solid var(--color-border);border-radius:var(--r-md);
+  position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;
+  transition:border-color .3s
+}
+.car-block.selected .car-icon{border-color:var(--color-primary)}
+.car-fill{position:absolute;bottom:0;left:0;right:0;transition:height .8s cubic-bezier(.34,1.56,.64,1),background .8s;border-radius:0 0 calc(var(--r-md) - 2px) calc(var(--r-md) - 2px)}
+.car-overlay{position:relative;z-index:2;font-size:var(--text-xs);font-weight:700;text-shadow:0 1px 3px oklch(0 0 0/.5)}
+.car-pct{font-size:var(--text-xs);font-weight:600}
+.car-prog-wrap{width:80%;height:6px;background:var(--color-surface-dyn);border-radius:var(--r-full);overflow:hidden}
+.car-prog{height:100%;border-radius:var(--r-full);transition:width .8s cubic-bezier(.34,1.56,.64,1),background .8s}
+.cam-dot-small{width:7px;height:7px;border-radius:var(--r-full);margin-top:var(--sp1)}
+.cam-dot-small.has{background:var(--color-primary)}
+.cam-dot-small.none{background:var(--color-surface-dyn)}
+
+/* === DETAIL GRID === */
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr));gap:var(--sp4)}
+.car-card{
+  background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--r-xl);
+  padding:var(--sp4);display:flex;flex-direction:column;gap:var(--sp3);
+  cursor:pointer;transition:box-shadow var(--tx),border-color var(--tx)
+}
+.car-card:hover{box-shadow:var(--shadow-md)}
+.car-card.selected{border-color:var(--color-primary);box-shadow:0 0 0 2px oklch(from var(--color-primary) l c h/.2)}
+.car-card-hd{display:flex;align-items:center;gap:var(--sp3)}
+.car-num-badge{width:36px;height:36px;min-width:36px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;font-size:var(--text-sm);font-weight:700}
+.car-card-title{font-size:var(--text-sm);font-weight:600}
+.car-card-cam{font-size:var(--text-xs);color:var(--color-muted)}
+.crowd-chip{display:inline-flex;align-items:center;gap:var(--sp1);padding:2px var(--sp2);border-radius:var(--r-full);font-size:var(--text-xs);font-weight:600}
+.chip-g{background:oklch(from var(--color-success) l c h/.15);color:var(--color-success)}
+.chip-y{background:oklch(from var(--color-warn) l c h/.15);color:var(--color-warn)}
+.chip-r{background:oklch(from var(--color-err) l c h/.15);color:var(--color-err)}
+.bar-track{height:12px;background:var(--color-surface-off);border-radius:var(--r-full);overflow:hidden}
+.bar-fill{height:100%;border-radius:var(--r-full);transition:width .9s cubic-bezier(.34,1.56,.64,1),background-position .9s;background:linear-gradient(90deg,#3fb950,#e3b341,#f85149);background-size:400px 100%}
+.bar-lbls{display:flex;justify-content:space-between;font-size:var(--text-xs);color:var(--color-faint);margin-top:var(--sp1)}
+.crowd-stats{display:flex;gap:var(--sp3)}
+.c-stat{flex:1}
+.c-stat-lbl{font-size:var(--text-xs);color:var(--color-muted)}
+.c-stat-val{font-size:var(--text-lg);font-weight:700;font-variant-numeric:tabular-nums;transition:color .5s}
+.mini-chart{display:flex;align-items:flex-end;gap:2px;height:28px}
+.mini-bar{flex:1;border-radius:2px 2px 0 0;min-height:2px;transition:height .5s}
+
+/* === YOLO CANVAS PANEL === */
+.yolo-panel{
+  background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--r-xl);
+  overflow:hidden;display:flex;flex-direction:column
+}
+.yolo-panel-hd{
+  display:flex;align-items:center;gap:var(--sp3);
+  padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--color-div)
+}
+.yolo-panel-title{font-size:var(--text-sm);font-weight:600;flex:1}
+.yolo-canvas-wrap{
+  position:relative;background:#000;aspect-ratio:16/9;
+  display:flex;align-items:center;justify-content:center;overflow:hidden
+}
+.yolo-video{width:100%;height:100%;object-fit:cover;display:block}
+.yolo-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+.yolo-overlay-msg{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:oklch(0 0 0/.7);gap:var(--sp3);text-align:center;padding:var(--sp6)
+}
+.yolo-overlay-msg svg{color:var(--color-muted)}
+.yolo-overlay-msg p{font-size:var(--text-sm);color:var(--color-muted);max-width:36ch}
+.yolo-overlay-msg.hidden{display:none}
+.yolo-stats-bar{
+  display:flex;gap:var(--sp4);padding:var(--sp3) var(--sp4);
+  border-top:1px solid var(--color-div);font-size:var(--text-xs)
+}
+.yolo-stat{display:flex;align-items:center;gap:var(--sp2)}
+.yolo-stat-lbl{color:var(--color-muted)}
+.yolo-stat-val{font-weight:700;font-variant-numeric:tabular-nums;color:var(--color-primary)}
+
+/* === MODAL === */
+.modal-overlay{position:fixed;inset:0;z-index:200;background:oklch(0 0 0/.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:var(--sp4);opacity:0;pointer-events:none;transition:opacity .25s}
+.modal-overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--r-xl);padding:var(--sp6);width:100%;max-width:520px;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;gap:var(--sp4);box-shadow:var(--shadow-lg);transform:translateY(8px);transition:transform .25s}
+.modal-overlay.open .modal{transform:translateY(0)}
+.modal-hd{display:flex;align-items:center;justify-content:space-between}
+.modal-title{font-size:var(--text-lg);font-weight:700}
+.modal-actions{display:flex;gap:var(--sp2);justify-content:flex-end;margin-top:var(--sp2)}
+
+/* TOGGLE */
+.toggle{position:relative;width:40px;height:22px;min-width:40px}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;background:var(--color-surface-dyn);border-radius:var(--r-full);cursor:pointer;transition:background .25s}
+.toggle input:checked + .toggle-track{background:var(--color-primary)}
+.toggle-thumb{position:absolute;top:3px;left:3px;width:16px;height:16px;background:#fff;border-radius:var(--r-full);transition:transform .25s;pointer-events:none}
+.toggle input:checked ~ .toggle-thumb{transform:translateX(18px)}
+
+/* === HEADER === */
+.section-hd{display:flex;align-items:center;gap:var(--sp4);margin-bottom:var(--sp6)}
+.section-title{font-size:var(--text-xl);font-weight:700}
+.section-sub{font-size:var(--text-sm);color:var(--color-muted)}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:var(--sp3)}
+.ctrl-btn{display:flex;align-items:center;gap:var(--sp2);padding:var(--sp2) var(--sp3);border:1px solid var(--color-border);border-radius:var(--r-md);font-size:var(--text-xs);font-weight:500;background:var(--color-surface);color:var(--color-muted);transition:all var(--tx)}
+.ctrl-btn:hover{background:var(--color-surface-off);color:var(--color-text)}
+.ctrl-btn.running{color:var(--color-success);border-color:oklch(from var(--color-success) l c h/.3);background:oklch(from var(--color-success) l c h/.06)}
+
+/* === TOAST === */
+.toast-stack{position:fixed;bottom:var(--sp6);right:var(--sp6);z-index:300;display:flex;flex-direction:column;gap:var(--sp2);pointer-events:none}
+.toast{display:flex;align-items:center;gap:var(--sp2);padding:var(--sp3) var(--sp4);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);font-size:var(--text-sm);animation:slideIn .3s ease,fadeOut .3s ease 2.7s forwards}
+@keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes fadeOut{to{opacity:0;transform:translateX(10px)}}
+@keyframes alertPulse{0%,100%{box-shadow:0 0 0 0 oklch(from var(--color-err) l c h/.3)}50%{box-shadow:0 0 0 8px oklch(from var(--color-err) l c h/0)}}
+
+/* SCROLLBAR */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--color-surface-dyn);border-radius:var(--r-full)}
+
+/* SETTINGS */
+.settings-section{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--r-xl);overflow:hidden;margin-bottom:var(--sp4)}
+.settings-section-hd{padding:var(--sp4) var(--sp6);border-bottom:1px solid var(--color-div)}
+.settings-section-title{font-size:var(--text-sm);font-weight:600}
+.settings-section-desc{font-size:var(--text-xs);color:var(--color-muted)}
+.settings-row{display:flex;align-items:center;justify-content:space-between;gap:var(--sp4);padding:var(--sp4) var(--sp6);border-bottom:1px solid var(--color-div)}
+.settings-row:last-child{border-bottom:none}
+.settings-row-info{flex:1}
+.settings-row-label{font-size:var(--text-sm);font-weight:500}
+.settings-row-desc{font-size:var(--text-xs);color:var(--color-muted)}
+
+/* PROGRESS BAR for loading */
+.load-progress{height:3px;background:var(--color-surface-dyn);border-radius:var(--r-full);overflow:hidden;margin-top:var(--sp2)}
+.load-progress-fill{height:100%;background:var(--color-primary);border-radius:var(--r-full);transition:width .3s;width:0}
+
+@media(max-width:768px){
+  .sidebar{position:fixed;left:0;top:58px;bottom:0;z-index:50;transform:translateX(-100%);transition:transform .3s cubic-bezier(.16,1,.3,1);box-shadow:var(--shadow-lg)}
+  .sidebar.open{transform:translateX(0)}
+  .content{padding:var(--sp4)}
+}
+</style>
+</head>
+<body>
+
+<!-- MODAL: Camera -->
+<div class="modal-overlay" id="camModal">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="modal-title" id="modalTitle">設定鏡頭</div>
+      <button class="icon-btn" onclick="closeModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">車廂</label>
+      <select class="form-select" id="camCarSel"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">鏡頭來源</label>
+      <select class="form-select" id="camSourceType" onchange="updateCamSourceUI()">
+        <option value="webcam">本機攝影機（WebCam）</option>
+        <option value="url">串流 URL（RTSP / HTTP / MJPEG）</option>
+        <option value="file">本機影片檔</option>
+      </select>
+    </div>
+    <div class="form-group" id="camDeviceGroup">
+      <label class="form-label">攝影機裝置</label>
+      <div style="display:flex;gap:var(--sp2)">
+        <select class="form-select" id="camDeviceIdx" style="flex:1" onchange="previewWebcam()">
+          <option value="">— 點右側按鈕偵測裝置 —</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="enumerateCameras()" title="偵測攝影機">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+        </button>
+      </div>
+      <!-- 即時預覽 -->
+      <div id="webcamPreviewWrap" style="display:none;margin-top:var(--sp2);border-radius:var(--r-md);overflow:hidden;background:#000;aspect-ratio:16/9;position:relative">
+        <video id="webcamPreview" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;display:block"></video>
+        <div style="position:absolute;top:var(--sp1);right:var(--sp1);background:oklch(0 0 0/.6);border-radius:var(--r-sm);padding:2px 6px;font-size:10px;color:#fff">預覽</div>
+      </div>
+    </div>
+    <div class="form-group" id="camUrlGroup" style="display:none">
+      <label class="form-label">串流網址</label>
+      <input class="form-input" id="camUrlInput" placeholder="http://192.168.1.x:8080/video" />
+    </div>
+    <div class="form-group" id="camFileGroup" style="display:none">
+      <label class="form-label">本機影片檔</label>
+      <input class="form-input" type="file" id="camFileInput" accept="video/*" style="padding:var(--sp1)" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">位置描述</label>
+      <input class="form-input" id="camDesc" placeholder="例：車廂前端" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">最大容量（人數上限）</label>
+      <input class="form-input" type="number" id="camCap" value="80" min="10" max="300" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" id="camSaveBtn" onclick="saveCam()">套用鏡頭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toastStack"></div>
+
+<div class="app">
+  <header class="topbar">
+    <div class="topbar-logo">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <rect x="2" y="8" width="24" height="14" rx="3" fill="currentColor" opacity=".15"/>
+        <rect x="2" y="8" width="24" height="14" rx="3" stroke="currentColor" stroke-width="1.5"/>
+        <rect x="5" y="11" width="5" height="8" rx="1" fill="currentColor" opacity=".4"/>
+        <rect x="11.5" y="11" width="5" height="8" rx="1" fill="currentColor" opacity=".4"/>
+        <rect x="18" y="11" width="5" height="8" rx="1" fill="currentColor" opacity=".4"/>
+        <circle cx="6" cy="23" r="2" fill="currentColor"/>
+        <circle cx="22" cy="23" r="2" fill="currentColor"/>
+        <path d="M2 20h24" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      <div class="topbar-title">MRT CrowdVision <span>· YOLO12</span></div>
+    </div>
+    <div class="tab-bar" style="margin-left:var(--sp6)">
+      <button class="tab-btn active" id="tab-monitor" onclick="switchTab('monitor')">監控總覽</button>
+      <button class="tab-btn" id="tab-yolo" onclick="switchTab('yolo')">YOLO 推論</button>
+      <button class="tab-btn" id="tab-settings" onclick="switchTab('settings')">系統設定</button>
+    </div>
+    <div class="topbar-right">
+      <div class="status-dot">
+        <div class="pulse" id="statusDot"></div>
+        <span id="statusText">等待模型</span>
+      </div>
+      <button class="icon-btn" data-theme-toggle title="切換主題" aria-label="切換主題">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div style="display:flex;flex-direction:column;gap:var(--sp3)">
+        <div class="sec-title">YOLO12 模型</div>
+        <!-- Model Load -->
+        <input type="file" id="modelFile" accept=".pt,.onnx" style="display:none" onchange="loadModelFile(this)"/>
+        <div class="model-zone" id="modelZone" onclick="document.getElementById('modelFile').click()">
+          <div class="model-zone-icon">🧠</div>
+          <div class="model-zone-text">點此載入 YOLO12 模型<br><small>.pt / .onnx · 後端以 CUDA 推論</small></div>
+          <div class="model-zone-name" id="modelName" style="display:none"></div>
+          <div class="load-progress"><div class="load-progress-fill" id="loadProgress"></div></div>
+        </div>
+        <div style="font-size:var(--text-xs);color:var(--color-faint);line-height:1.5">
+          支援 <code style="background:var(--color-surface-off);padding:2px 6px;border-radius:4px;font-size:10px">.pt</code>（建議）或 <code style="background:var(--color-surface-off);padding:2px 6px;border-radius:4px;font-size:10px">.onnx</code>，推論在伺服器端以 CUDA 執行
+        </div>
+      </div>
+      <div class="divider"></div>
+
+      <div style="display:flex;flex-direction:column;gap:var(--sp3)">
+        <div class="sec-title">列車設定</div>
+        <div class="form-group">
+          <label class="form-label">列車號</label>
+          <input class="form-input" id="trainId" value="T-1024" oninput="updateHeaderMeta()"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">路線</label>
+          <select class="form-select" id="trainLine" onchange="updateHeaderMeta()">
+            <option value="板南線">板南線</option>
+            <option value="淡水信義線">淡水信義線</option>
+            <option value="中和新蘆線">中和新蘆線</option>
+            <option value="松山新店線">松山新店線</option>
+          </select>
+        </div>
+        <div class="input-row">
+          <div class="form-group">
+            <label class="form-label">車廂數</label>
+            <input class="form-input" type="number" id="carCount" value="6" min="2" max="12"/>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="applyCarCount()">套用</button>
+        </div>
+      </div>
+      <div class="divider"></div>
+
+      <div style="display:flex;flex-direction:column;gap:var(--sp3)">
+        <div class="sec-title">辨識頻率</div>
+        <div class="freq-panel">
+          <div class="form-label">每節車廂偵測間隔</div>
+          <div style="display:flex;align-items:baseline;gap:var(--sp1);margin-top:var(--sp1)">
+            <div class="freq-val" id="freqDisplay">5</div>
+            <div class="freq-unit">秒</div>
+          </div>
+          <input type="range" class="slider" id="freqSlider" min="1" max="60" value="5" oninput="updateFreq(this.value)"/>
+          <div class="freq-hints"><span>1s 高頻</span><span>60s 省資源</span></div>
+        </div>
+        <div class="scan-info">
+          <div class="scan-row"><span class="scan-key">上次偵測</span><span class="scan-val" id="lastScanTime">—</span></div>
+          <div class="scan-row"><span class="scan-key">偵測次數</span><span class="scan-val" id="scanCount">0</span></div>
+          <div class="scan-row"><span class="scan-key">推論延遲</span><span class="scan-val" id="inferLatency">—</span></div>
+          <div class="scan-row"><span class="scan-key">後端</span><span class="scan-val" id="backendInfo">—</span></div>
+        </div>
+        <div style="display:flex;gap:var(--sp2)">
+          <button class="btn btn-ghost btn-sm" id="pauseBtn" onclick="togglePause()" style="flex:1">⏸ 暫停</button>
+          <button class="btn btn-primary btn-sm" onclick="forceScan()" style="flex:1">立即掃描</button>
+        </div>
+      </div>
+      <div class="divider"></div>
+
+      <div style="display:flex;flex-direction:column;gap:var(--sp3);flex:1">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div class="sec-title">鏡頭管理</div>
+          <button class="btn btn-primary btn-sm" onclick="openAddCam()">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            新增
+          </button>
+        </div>
+        <div class="cam-list" id="camList"></div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="content" id="mainContent">
+
+      <!-- Monitor View -->
+      <div id="monitorView">
+        <div class="section-hd">
+          <div>
+            <div class="section-title" id="headerTitle">板南線</div>
+            <div class="section-sub" id="headerSub">列車 T-1024 · 6 節車廂</div>
+          </div>
+          <div class="header-right">
+            <button class="ctrl-btn" id="scanCtrlBtn" onclick="togglePause()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" id="scanCtrlIcon"><polygon points="5,3 19,12 5,21"/></svg>
+              <span id="scanCtrlText">等待模型</span>
+            </button>
+          </div>
+        </div>
+        <div class="train-visual-wrap">
+          <div class="train-visual" id="trainVisual"></div>
+        </div>
+        <div class="detail-grid" id="detailGrid"></div>
+      </div>
+
+      <!-- YOLO View -->
+      <div id="yoloView" style="display:none">
+        <div class="section-hd">
+          <div>
+            <div class="section-title">即時 YOLO 推論</div>
+            <div class="section-sub">選擇車廂鏡頭進行人頭辨識</div>
+          </div>
+          <div class="header-right">
+            <button class="btn btn-ghost btn-sm" id="quickWebcamBtn" onclick="quickOpenWebcam()" title="直接開啟電腦鏡頭">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+              電腦鏡頭
+            </button>
+            <select class="form-select" id="yoloCarSel" onchange="switchYoloCar()" style="font-size:var(--text-xs)">
+              <option value="">選擇車廂</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="yolo-panel" style="margin-bottom:var(--sp6)">
+          <div class="yolo-panel-hd">
+            <div class="yolo-panel-title" id="yoloPanelTitle">車廂鏡頭預覽</div>
+            <div style="display:flex;gap:var(--sp2)">
+              <button class="btn btn-ghost btn-sm" id="yoloStartBtn" onclick="startYoloStream()" disabled>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                啟動
+              </button>
+              <button class="btn btn-ghost btn-sm" id="yoloStopBtn" onclick="stopYoloStream()" disabled>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="12" height="16" rx="1"/></svg>
+                停止
+              </button>
+            </div>
+          </div>
+          <div class="yolo-canvas-wrap">
+            <video id="yoloVideo" class="yolo-video" autoplay muted playsinline></video>
+            <canvas id="yoloCanvas" class="yolo-canvas"></canvas>
+            <div class="yolo-overlay-msg" id="yoloOverlay">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+              </svg>
+              <p id="yoloOverlayMsg">請先載入 YOLO 模型並設定車廂鏡頭</p>
+            </div>
+          </div>
+          <div class="yolo-stats-bar">
+            <div class="yolo-stat"><span class="yolo-stat-lbl">偵測人數</span><span class="yolo-stat-val" id="yoloCount">—</span></div>
+            <div class="yolo-stat"><span class="yolo-stat-lbl">FPS</span><span class="yolo-stat-val" id="yoloFps">—</span></div>
+            <div class="yolo-stat"><span class="yolo-stat-lbl">推論延遲</span><span class="yolo-stat-val" id="yoloLatency">—</span></div>
+            <div class="yolo-stat"><span class="yolo-stat-lbl">信心閾值</span><span class="yolo-stat-val" id="yoloConfShow">50%</span></div>
+          </div>
+        </div>
+
+        <!-- All cams grid -->
+        <div class="section-sub" style="margin-bottom:var(--sp3)">所有已設定車廂的 YOLO 偵測狀態</div>
+        <div class="detail-grid" id="yoloCardsGrid"></div>
+      </div>
+
+      <!-- Settings View -->
+      <div id="settingsView" style="display:none">
+        <div class="section-hd">
+          <div>
+            <div class="section-title">系統設定</div>
+            <div class="section-sub">YOLO12 推論參數與顯示設定</div>
+          </div>
+        </div>
+        <div style="max-width:640px">
+          <div class="settings-section">
+            <div class="settings-section-hd">
+              <div class="settings-section-title">YOLO 推論參數</div>
+              <div class="settings-section-desc">影響辨識精度與速度</div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-label">信心閾值 (Confidence)</div>
+                <div class="settings-row-desc">低於此值的偵測框會被過濾掉</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:var(--sp2)">
+                <input type="range" class="slider" style="width:100px" min="10" max="95" value="50" id="confSlider" oninput="updateConf(this.value)"/>
+                <span style="font-size:var(--text-xs);font-weight:600;width:36px;text-align:right" id="confVal">50%</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-label">NMS IoU 閾值</div>
+                <div class="settings-row-desc">重疊框過濾閾值，越低越嚴格</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:var(--sp2)">
+                <input type="range" class="slider" style="width:100px" min="10" max="90" value="45" id="iouSlider" oninput="document.getElementById('iouVal').textContent=(this.value/100).toFixed(2)"/>
+                <span style="font-size:var(--text-xs);font-weight:600;width:36px;text-align:right" id="iouVal">0.45</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-label">輸入解析度</div>
+                <div class="settings-row-desc">模型輸入邊長（需符合訓練設定）</div>
+              </div>
+              <select class="form-select" style="width:120px" id="inputSizeSelect" onchange="state.modelInputSize=parseInt(this.value)">
+                <option value="640" selected>640 px</option>
+                <option value="960">960 px</option>
+                <option value="1280">1280 px</option>
+                <option value="320">320 px（快）</option>
+              </select>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-label">辨識後端</div>
+                <div class="settings-row-desc">WebGPU 最快；wasm 相容性最佳</div>
+              </div>
+              <select class="form-select" style="width:130px" id="backendSelect">
+                <option value="webgpu">WebGPU（GPU）</option>
+                <option value="wasm" selected>WebAssembly（CPU）</option>
+              </select>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-label">繪製偵測框</div>
+                <div class="settings-row-desc">在 YOLO 視圖顯示 bounding box</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="drawBoxes" checked/>
+                <div class="toggle-track"></div><div class="toggle-thumb"></div>
+              </label>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-label">顯示信心分數</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="showConf" checked/>
+                <div class="toggle-track"></div><div class="toggle-thumb"></div>
+              </label>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-hd">
+              <div class="settings-section-title">警報設定</div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-label">擁擠警報閾值</div>
+                <div class="settings-row-desc">容量使用率超過此值時顯示警告</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:var(--sp2)">
+                <input type="range" class="slider" style="width:100px" min="50" max="100" value="80" id="alertSlider" oninput="state.alertThreshold=this.value/100;document.getElementById('alertVal').textContent=this.value+'%'"/>
+                <span style="font-size:var(--text-xs);font-weight:600;width:36px;text-align:right" id="alertVal">80%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  STATE
+// ============================================================
+const state = {
+  cars: [],
+  cameras: [],       // {id, carId, type, src, desc, stream:MediaStream|null, online}
+  onnxSession: null,
+  modelLoaded: false,
+  modelInputSize: 640,
+  isPaused: false,
+  scanInterval: null,
+  scanCount: 0,
+  scanFreq: 5,
+  alertThreshold: 0.8,
+  confThreshold: 0.5,
+  iouThreshold: 0.45,
+  activeYoloCar: null,
+  yoloRAF: null,
+  yoloFpsTs: [],
+  _editingCamId: null,
+};
+
+// ============================================================
+//  COLOR HELPERS
+// ============================================================
+function crowdColor(r) {
+  r = Math.min(1, Math.max(0, r));
+  if (r < 0.5) {
+    const t = r * 2;
+    return `rgb(${Math.round(63+t*(227-63))},${Math.round(185+t*(179-185))},${Math.round(80+t*(65-80))})`;
+  }
+  const t = (r - 0.5) * 2;
+  return `rgb(${Math.round(227+t*(248-227))},${Math.round(179+t*(81-179))},${Math.round(65+t*(73-65))})`;
+}
+function crowdLabel(r) {
+  if (r < 0.5) return ['空曠','chip-g'];
+  if (r < 0.8) return ['適中','chip-y'];
+  return ['擁擠','chip-r'];
+}
+function hasCam(carId) { return state.cameras.some(c => c.carId === carId); }
+
+// ============================================================
+//  ONNX MODEL
+// ============================================================
+async function loadModelFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const zone = document.getElementById('modelZone');
+  const name = document.getElementById('modelName');
+  const bar  = document.getElementById('loadProgress');
+  zone.style.pointerEvents = 'none';
+  bar.style.width = '30%';
+  try {
+    const fd = new FormData();
+    fd.append('model', file);
+    bar.style.width = '60%';
+    const res  = await fetch('/api/load', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || '載入失敗');
+    bar.style.width = '100%';
+    state.modelLoaded = true;
+    zone.classList.add('loaded');
+    name.textContent = '✅ ' + file.name;
+    name.style.display = 'block';
+    document.querySelector('.model-zone-text').style.display = 'none';
+    document.getElementById('backendInfo').textContent = '🖥️ ' + data.device.toUpperCase();
+    setStatus('ready', '模型就緒（後端）');
+    updateScanCtrl();
+    showToast('✅ 後端載入成功 · 裝置：' + data.device.toUpperCase());
+    document.getElementById('yoloStartBtn').disabled = false;
+  } catch(e) {
+    bar.style.width = '0';
+    zone.style.pointerEvents = '';
+    showToast('❌ 模型載入失敗：' + e.message, 'error');
+    console.error(e);
+  }
+}
+
+// drag & drop model
+document.getElementById('modelZone').addEventListener('dragover', e => { e.preventDefault(); });
+document.getElementById('modelZone').addEventListener('drop', e => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith('.onnx')) {
+    const dt = new DataTransfer(); dt.items.add(file);
+    const inp = document.getElementById('modelFile');
+    inp.files = dt.files;
+    loadModelFile(inp);
+  }
+});
+
+// ============================================================
+//  YOLO INFERENCE — pure JS onnxruntime-web
+// ============================================================
+// 擷取 video frame → base64 JPEG
+function captureFrame(videoOrCanvas, quality=0.7) {
+  const sw = videoOrCanvas.videoWidth || videoOrCanvas.width || 640;
+  const sh = videoOrCanvas.videoHeight || videoOrCanvas.height || 360;
+  const tmp = document.createElement('canvas');
+  tmp.width = sw; tmp.height = sh;
+  tmp.getContext('2d').drawImage(videoOrCanvas, 0, 0);
+  return tmp.toDataURL('image/jpeg', quality);
+}
+
+async function runInference(videoOrCanvas) {
+  if (!state.modelLoaded) return null;
+  const imageB64 = captureFrame(videoOrCanvas);
+  const t0 = performance.now();
+  let res, data;
+  try {
+    res  = await fetch('/api/infer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: imageB64,
+        conf:  state.confThreshold,
+        iou:   state.iouThreshold,
+        size:  state.modelInputSize,
+      }),
+    });
+    data = await res.json();
+  } catch(e) {
+    console.error('infer fetch error', e);
+    return null;
+  }
+  if (!res.ok || data.error) { console.error(data.error); return null; }
+  const roundtrip = (performance.now() - t0).toFixed(1);
+  // boxes 已是正規化座標 {x,y,w,h,conf}，直接給 drawBoxes 用
+  // drawBoxes 期待的 size=1（正規化），dx=dy=0
+  return {
+    boxes:   data.boxes,
+    latency: data.latency,   // 純後端推論時間
+    roundtrip,
+    count:   data.count,
+    size: 1, dx: 0, dy: 0, nw: 1, nh: 1, scale: 1,
+  };
+}
+
+function nms(boxes, iouThr) {
+  boxes.sort((a,b) => b.conf - a.conf);
+  const keep = [];
+  const suppressed = new Set();
+  for (let i = 0; i < boxes.length; i++) {
+    if (suppressed.has(i)) continue;
+    keep.push(boxes[i]);
+    for (let j = i+1; j < boxes.length; j++) {
+      if (iou(boxes[i], boxes[j]) > iouThr) suppressed.add(j);
+    }
+  }
+  return keep;
+}
+function iou(a, b) {
+  const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x+a.w, b.x+b.w), y2 = Math.min(a.y+a.h, b.y+b.h);
+  if (x2 <= x1 || y2 <= y1) return 0;
+  const inter = (x2-x1)*(y2-y1);
+  return inter / (a.w*a.h + b.w*b.h - inter);
+}
+
+function drawBoxes(canvas, result) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!result || !document.getElementById('drawBoxes').checked) return;
+  const { boxes } = result;
+  const cw = canvas.width, ch = canvas.height;
+  const showC = document.getElementById('showConf').checked;
+  ctx.lineWidth = 2;
+  ctx.font = 'bold 12px Satoshi,sans-serif';
+  // boxes 為正規化座標 (0~1)，直接乘以 canvas 寬高
+  boxes.forEach(b => {
+    const x  = b.x * cw;
+    const y  = b.y * ch;
+    const bw = b.w * cw;
+    const bh = b.h * ch;
+    const col = crowdColor(b.conf);
+    ctx.strokeStyle = col;
+    ctx.fillStyle = col + '22';
+    ctx.beginPath();
+    ctx.roundRect(x, y, bw, bh, 4);
+    ctx.stroke(); ctx.fill();
+    if (showC) {
+      const label = 'head ' + Math.round(b.conf*100) + '%';
+      ctx.fillStyle = col;
+      ctx.fillText(label, x + 4, y - 4 < 14 ? y + 14 : y - 4);
+    }
+  });
+}
+
+// ============================================================
+//  YOLO LIVE VIEW
+// ============================================================
+let _yoloActive = false;
+let _fpsFrames = [];
+
+async function startYoloStream() {
+  if (!state.modelLoaded) { showToast('請先載入 YOLO 模型', 'error'); return; }
+  const carId = parseInt(document.getElementById('yoloCarSel').value);
+  if (!carId) { showToast('請選擇車廂', 'error'); return; }
+  const cam = state.cameras.find(c => c.carId === carId);
+  if (!cam) { showToast('此車廂尚未設定鏡頭', 'error'); return; }
+  const video = document.getElementById('yoloVideo');
+  const canvas = document.getElementById('yoloCanvas');
+  // setup stream
+  try {
+    await setupVideoStream(cam, video);
+  } catch(e) {
+    showToast('❌ 無法開啟鏡頭：' + e.message, 'error'); return;
+  }
+  document.getElementById('yoloOverlay').classList.add('hidden');
+  document.getElementById('yoloStartBtn').disabled = true;
+  document.getElementById('yoloStopBtn').disabled = false;
+  _yoloActive = true; _fpsFrames = [];
+
+  async function loop() {
+    if (!_yoloActive) return;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 360;
+    if (video.readyState >= 2) {
+      const result = await runInference(video);
+      if (result) {
+        drawBoxes(canvas, result);
+        document.getElementById('yoloCount').textContent = result.count;
+        document.getElementById('yoloLatency').textContent = result.latency + ' ms';
+        // FPS
+        const now = performance.now();
+        _fpsFrames.push(now);
+        _fpsFrames = _fpsFrames.filter(t => now - t < 1000);
+        document.getElementById('yoloFps').textContent = _fpsFrames.length;
+        // Update car count
+        const car = state.cars.find(c => c.id === carId);
+        if (car) {
+          car.history.push(result.count);
+          if (car.history.length > 8) car.history.shift();
+          car.count = result.count;
+          renderTrainVisual(); renderDetailGrid();
+        }
+      }
+    }
+    state.yoloRAF = requestAnimationFrame(loop);
+  }
+  loop();
+  setStatus('running', '推論中');
+}
+
+async function setupVideoStream(cam, video) {
+  if (cam.stream) { try { cam.stream.getTracks().forEach(t => t.stop()); } catch(e){} }
+  if (cam.type === 'webcam') {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: cam.src ? { exact: cam.src } : undefined },
+    });
+    cam.stream = stream;
+    video.srcObject = stream;
+    video.src = '';
+  } else if (cam.type === 'file') {
+    video.srcObject = null;
+    video.src = cam.src;
+    video.loop = true;
+    video.play();
+  } else {
+    // URL stream — attempt direct src
+    video.srcObject = null;
+    video.src = cam.src;
+    video.play();
+  }
+  cam.online = true;
+  renderCamList();
+}
+
+function stopYoloStream() {
+  _yoloActive = false;
+  if (state.yoloRAF) { cancelAnimationFrame(state.yoloRAF); state.yoloRAF = null; }
+  const video = document.getElementById('yoloVideo');
+  video.srcObject = null; video.src = '';
+  const canvas = document.getElementById('yoloCanvas');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  document.getElementById('yoloOverlay').classList.remove('hidden');
+  document.getElementById('yoloOverlayMsg').textContent = '串流已停止';
+  document.getElementById('yoloStartBtn').disabled = false;
+  document.getElementById('yoloStopBtn').disabled = true;
+  document.getElementById('yoloCount').textContent = '—';
+  document.getElementById('yoloFps').textContent = '—';
+  document.getElementById('yoloLatency').textContent = '—';
+  setStatus('ready', '模型就緒');
+}
+
+function switchYoloCar() {
+  if (_yoloActive) stopYoloStream();
+  const carId = parseInt(document.getElementById('yoloCarSel').value);
+  const cam = state.cameras.find(c => c.carId === carId);
+  document.getElementById('yoloPanelTitle').textContent = carId ? `第 ${carId} 節車廂 · ${cam ? cam.desc || '鏡頭' : '未設定鏡頭'}` : '車廂鏡頭預覽';
+  document.getElementById('yoloStartBtn').disabled = !(state.modelLoaded && carId && cam);
+  document.getElementById('yoloOverlayMsg').textContent = cam ? '點選「啟動」開始推論' : '此車廂尚未設定鏡頭';
+}
+
+// ============================================================
+//  SCAN LOOP (non-live, periodic)
+// ============================================================
+function startScanLoop() {
+  if (state.scanInterval) clearInterval(state.scanInterval);
+  state.scanInterval = setInterval(() => {
+    if (!state.isPaused && state.modelLoaded) doPeriodicScan();
+  }, state.scanFreq * 1000);
+}
+
+async function doPeriodicScan() {
+  state.scanCount++;
+  document.getElementById('lastScanTime').textContent = new Date().toTimeString().slice(0,8);
+  document.getElementById('scanCount').textContent = state.scanCount;
+  let totalLatency = 0, scanned = 0;
+  for (const car of state.cars) {
+    const cam = state.cameras.find(c => c.carId === car.id);
+    if (!cam || !cam.stream) continue;
+    // grab frame from stream via hidden video
+    const tmpVideo = document.createElement('video');
+    tmpVideo.srcObject = cam.stream;
+    tmpVideo.muted = true;
+    await new Promise(r => { tmpVideo.onloadeddata = r; setTimeout(r, 300); });
+    const result = await runInference(tmpVideo);
+    if (result) {
+      car.history.push(result.count);
+      if (car.history.length > 8) car.history.shift();
+      car.count = result.count;
+      totalLatency += parseFloat(result.latency);
+      scanned++;
+    }
+  }
+  if (scanned > 0) {
+    document.getElementById('inferLatency').textContent = (totalLatency / scanned).toFixed(1) + ' ms';
+  }
+  renderTrainVisual(); renderDetailGrid();
+}
+
+function forceScan() {
+  if (!state.modelLoaded) { showToast('請先載入 YOLO 模型', 'error'); return; }
+  doPeriodicScan().then(() => showToast('✅ 掃描完成'));
+}
+
+// ============================================================
+//  CAMERA MANAGEMENT
+// ============================================================
+let _camCounter = 1;
+
+function updateCamCarOptions() {
+  const sel = document.getElementById('camCarSel');
+  sel.innerHTML = state.cars.map(c => `<option value="${c.id}">第 ${c.id} 節車廂</option>`).join('');
+}
+function updateCamSourceUI() {
+  const t = document.getElementById('camSourceType').value;
+  document.getElementById('camDeviceGroup').style.display = t === 'webcam' ? '' : 'none';
+  document.getElementById('camUrlGroup').style.display = t === 'url' ? '' : 'none';
+  document.getElementById('camFileGroup').style.display = t === 'file' ? '' : 'none';
+}
+function openAddCam() {
+  state._editingCamId = null;
+  document.getElementById('modalTitle').textContent = '新增鏡頭';
+  updateCamCarOptions();
+  document.getElementById('camDesc').value = '';
+  document.getElementById('camCap').value = 80;
+  document.getElementById('camSourceType').value = 'webcam';
+  updateCamSourceUI();
+  document.getElementById('camModal').classList.add('open');
+}
+function openEditCam(e, camId) {
+  e.stopPropagation();
+  state._editingCamId = camId;
+  const cam = state.cameras.find(c => c.id === camId);
+  document.getElementById('modalTitle').textContent = '編輯鏡頭';
+  updateCamCarOptions();
+  document.getElementById('camCarSel').value = cam.carId;
+  document.getElementById('camDesc').value = cam.desc || '';
+  document.getElementById('camSourceType').value = cam.type || 'webcam';
+  document.getElementById('camCap').value = state.cars.find(c => c.id === cam.carId)?.capacity || 80;
+  updateCamSourceUI();
+  if (cam.type === 'url') document.getElementById('camUrlInput').value = cam.src || '';
+  document.getElementById('camModal').classList.add('open');
+}
+async function saveCam() {
+  const carId = parseInt(document.getElementById('camCarSel').value);
+  const type = document.getElementById('camSourceType').value;
+  const desc = document.getElementById('camDesc').value.trim();
+  const cap = parseInt(document.getElementById('camCap').value) || 80;
+  let src = '';
+  if (type === 'webcam') {
+    src = document.getElementById('camDeviceIdx').value;
+  } else if (type === 'url') {
+    src = document.getElementById('camUrlInput').value.trim();
+    if (!src) { showToast('請輸入串流 URL', 'error'); return; }
+  } else if (type === 'file') {
+    const f = document.getElementById('camFileInput').files[0];
+    if (!f) { showToast('請選擇影片檔', 'error'); return; }
+    src = URL.createObjectURL(f);
+  }
+  const car = state.cars.find(c => c.id === carId);
+  if (car) car.capacity = cap;
+
+  if (state._editingCamId !== null) {
+    const idx = state.cameras.findIndex(c => c.id === state._editingCamId);
+    if (idx >= 0) Object.assign(state.cameras[idx], { carId, type, src, desc, online: false });
+  } else {
+    const existing = state.cameras.findIndex(c => c.carId === carId);
+    if (existing >= 0) Object.assign(state.cameras[existing], { type, src, desc, online: false });
+    else state.cameras.push({ id: _camCounter++, carId, type, src, desc, stream: null, online: false });
+  }
+  closeModal();
+  renderCamList(); renderTrainVisual(); renderDetailGrid(); updateYoloCarSel();
+  showToast('✅ 鏡頭設定已儲存');
+}
+
+async function startCamStream(cam) {
+  try {
+    const tmpV = document.createElement('video'); tmpV.muted = true; tmpV.autoplay = true;
+    if (cam.type === 'webcam') {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: cam.src ? {exact: cam.src} : undefined } });
+      tmpV.srcObject = stream; cam.stream = stream;
+    } else {
+      tmpV.src = cam.src; tmpV.loop = true; tmpV.play();
+    }
+    cam.online = true;
+    renderCamList();
+    showToast(`✅ 第 ${cam.carId} 節鏡頭已啟動`);
+  } catch(e) {
+    cam.online = false;
+    showToast(`❌ 鏡頭啟動失敗：${e.message}`, 'error');
+    renderCamList();
+  }
+}
+
+function deleteCam(e, camId) {
+  e.stopPropagation();
+  state.cameras = state.cameras.filter(c => c.id !== camId);
+  renderCamList(); renderTrainVisual(); renderDetailGrid(); updateYoloCarSel();
+  showToast('鏡頭已移除');
+}
+
+function renderCamList() {
+  const el = document.getElementById('camList');
+  if (!state.cameras.length) {
+    el.innerHTML = '<div style="font-size:var(--text-xs);color:var(--color-faint);text-align:center;padding:var(--sp4)">尚未設定鏡頭</div>';
+    return;
+  }
+  el.innerHTML = state.cameras.map(cam => `
+    <div class="cam-item">
+      <div class="cam-badge">C${cam.id}</div>
+      <div class="cam-info">
+        <div class="cam-name">第 ${cam.carId} 節 · ${cam.desc || cam.type}</div>
+        <div class="cam-url">${cam.type === 'webcam' ? '📹 本機攝影機' : cam.type === 'file' ? '🎞 本機影片' : cam.src}</div>
+      </div>
+      <div style="display:flex;gap:4px;align-items:center">
+        <div class="cam-dot ${cam.online?'on':'off'}"></div>
+        <button class="icon-btn" style="width:24px;height:24px" onclick="openEditCam(event,${cam.id})" title="編輯">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="icon-btn" style="width:24px;height:24px;color:var(--color-err)" onclick="deleteCam(event,${cam.id})" title="刪除">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function updateYoloCarSel() {
+  const sel = document.getElementById('yoloCarSel');
+  sel.innerHTML = '<option value="">選擇車廂</option>' +
+    state.cameras.map(c => `<option value="${c.carId}">第 ${c.carId} 節車廂</option>`).join('');
+}
+
+// ============================================================
+//  RENDERS
+// ============================================================
+function renderTrainVisual() {
+  const el = document.getElementById('trainVisual');
+  el.innerHTML = '';
+  state.cars.forEach((car, i) => {
+    if (i > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'train-connector'; el.appendChild(conn);
+    }
+    const r = car.capacity > 0 ? car.count / car.capacity : 0;
+    const col = crowdColor(r);
+    const b = document.createElement('div');
+    b.className = 'car-block' + (state.selectedCar === car.id ? ' selected' : '');
+    b.onclick = () => selectCar(car.id);
+    b.innerHTML = `
+      <div class="car-number">第 ${car.id} 節</div>
+      <div class="car-icon">
+        <div class="car-fill" style="height:${Math.round(r*100)}%;background:${col};opacity:.55"></div>
+        <div class="car-overlay" style="color:${r>.45?'#fff':'var(--color-text)'}">${car.count}</div>
+      </div>
+      <div class="car-prog-wrap">
+        <div class="car-prog" style="width:${Math.min(100,Math.round(r*100))}%;background:${col}"></div>
+      </div>
+      <div class="car-pct" style="color:${col}">${Math.round(r*100)}%</div>
+      <div class="cam-dot-small ${hasCam(car.id)?'has':'none'}" title="${hasCam(car.id)?'已設定鏡頭':'無鏡頭'}"></div>
+    `;
+    el.appendChild(b);
+  });
+}
+
+function renderDetailGrid() {
+  const el = document.getElementById('detailGrid');
+  el.innerHTML = '';
+  state.cars.forEach(car => {
+    const r = car.capacity > 0 ? car.count / car.capacity : 0;
+    const col = crowdColor(r);
+    const [lbl, chipCls] = crowdLabel(r);
+    const cam = state.cameras.find(c => c.carId === car.id);
+    const isAlert = r >= state.alertThreshold;
+    const maxH = Math.max(...car.history, 1);
+    const mini = car.history.map(v => {
+      const h = Math.round(v / maxH * 100);
+      return `<div class="mini-bar" style="height:${h}%;background:${crowdColor(car.capacity>0?v/car.capacity:0)};opacity:.7"></div>`;
+    }).join('');
+    const card = document.createElement('div');
+    card.className = 'car-card' + (state.selectedCar === car.id ? ' selected' : '');
+    if (isAlert) card.style.animation = 'alertPulse 1.5s ease-in-out infinite';
+    card.onclick = () => selectCar(car.id);
+    card.innerHTML = `
+      <div class="car-card-hd">
+        <div class="car-num-badge" style="background:${col}1a;color:${col}">${car.id}</div>
+        <div style="flex:1">
+          <div class="car-card-title">第 ${car.id} 節車廂</div>
+          <div class="car-card-cam">${cam ? '📷 ' + (cam.desc || cam.type) : '⚠ 未設定鏡頭'}</div>
+        </div>
+        <span class="crowd-chip ${chipCls}">${lbl}</span>
+      </div>
+      <div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${Math.min(100,Math.round(r*100))}%;background-position:${-r*300}px 0"></div>
+        </div>
+        <div class="bar-lbls"><span>0</span><span>${car.capacity} 人</span></div>
+      </div>
+      <div class="crowd-stats">
+        <div class="c-stat"><div class="c-stat-lbl">目前人數</div><div class="c-stat-val" style="color:${col}">${car.count}</div></div>
+        <div class="c-stat"><div class="c-stat-lbl">容量</div><div class="c-stat-val">${Math.round(r*100)}%</div></div>
+        <div class="c-stat"><div class="c-stat-lbl">上限</div><div class="c-stat-val" style="font-size:var(--text-sm)">${car.capacity}</div></div>
+      </div>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font-size:var(--text-xs);color:var(--color-faint)">歷史趨勢</div>
+          <div class="mini-chart">${mini}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="openEditCamByCar(event,${car.id})">${cam ? '編輯鏡頭' : '設定鏡頭'}</button>
+      </div>
+    `;
+    el.appendChild(card);
+  });
+  renderYoloCardsGrid();
+}
+
+function renderYoloCardsGrid() {
+  const el = document.getElementById('yoloCardsGrid');
+  if (!el) return;
+  el.innerHTML = '';
+  state.cars.forEach(car => {
+    const r = car.capacity > 0 ? car.count / car.capacity : 0;
+    const col = crowdColor(r);
+    const [lbl, chipCls] = crowdLabel(r);
+    const cam = state.cameras.find(c => c.carId === car.id);
+    const card = document.createElement('div');
+    card.className = 'car-card';
+    card.innerHTML = `
+      <div class="car-card-hd">
+        <div class="car-num-badge" style="background:${col}1a;color:${col}">${car.id}</div>
+        <div style="flex:1">
+          <div class="car-card-title">第 ${car.id} 節</div>
+          <div class="car-card-cam">${cam ? (cam.online ? '🟢 鏡頭連線中' : '⚫ 鏡頭未啟動') : '— 未設定'}</div>
+        </div>
+        <span class="crowd-chip ${chipCls}">${lbl}</span>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${Math.min(100,Math.round(r*100))}%;background-position:${-r*300}px 0"></div>
+      </div>
+      <div class="crowd-stats">
+        <div class="c-stat"><div class="c-stat-lbl">人數</div><div class="c-stat-val" style="color:${col}">${car.count}</div></div>
+        <div class="c-stat"><div class="c-stat-lbl">使用率</div><div class="c-stat-val">${Math.round(r*100)}%</div></div>
+      </div>
+      ${cam ? `<button class="btn btn-primary btn-sm" onclick="jumpToYoloCar(${car.id})">即時推論 →</button>` : ''}
+    `;
+    el.appendChild(card);
+  });
+}
+
+function jumpToYoloCar(carId) {
+  switchTab('yolo');
+  document.getElementById('yoloCarSel').value = carId;
+  switchYoloCar();
+}
+
+// ============================================================
+//  INIT / CONTROLS
+// ============================================================
+function initCars(count) {
+  const prev = state.cars;
+  state.cars = Array.from({ length: count }, (_, i) => {
+    const old = prev.find(c => c.id === i+1);
+    return old || { id: i+1, count: 0, capacity: 80, history: Array(8).fill(0) };
+  });
+}
+function applyCarCount() {
+  const n = Math.max(2, Math.min(12, parseInt(document.getElementById('carCount').value) || 6));
+  initCars(n);
+  updateHeaderMeta(); renderTrainVisual(); renderDetailGrid(); updateCamCarOptions(); updateYoloCarSel();
+  showToast(`已更新為 ${n} 節車廂`);
+}
+function updateHeaderMeta() {
+  const line = document.getElementById('trainLine').value;
+  const tid = document.getElementById('trainId').value;
+  document.getElementById('headerTitle').textContent = line;
+  document.getElementById('headerSub').textContent = `列車 ${tid} · ${state.cars.length} 節車廂`;
+}
+function updateFreq(v) {
+  state.scanFreq = parseInt(v);
+  document.getElementById('freqDisplay').textContent = v;
+  startScanLoop();
+}
+function updateConf(v) {
+  state.confThreshold = v / 100;
+  document.getElementById('confVal').textContent = v + '%';
+  document.getElementById('yoloConfShow').textContent = v + '%';
+}
+function togglePause() {
+  state.isPaused = !state.isPaused;
+  const p = document.getElementById('pauseBtn');
+  if (state.isPaused) {
+    p.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> 繼續';
+    setStatus('idle', '已暫停'); updateScanCtrl('paused');
+  } else {
+    p.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 暫停';
+    setStatus('ready', state.modelLoaded ? '模型就緒' : '等待模型'); updateScanCtrl();
+  }
+}
+function updateScanCtrl(state2) {
+  const btn = document.getElementById('scanCtrlBtn');
+  const icon = document.getElementById('scanCtrlIcon');
+  const txt = document.getElementById('scanCtrlText');
+  if (!state.modelLoaded) {
+    btn.classList.remove('running'); txt.textContent = '等待模型';
+    icon.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+  } else if (state.isPaused) {
+    btn.classList.remove('running'); txt.textContent = '已暫停';
+    icon.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+  } else {
+    btn.classList.add('running'); txt.textContent = '偵測中';
+    icon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+  }
+}
+function setStatus(type, text) {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'pulse ' + (type === 'running' ? 'running' : type === 'idle' ? 'idle' : type === 'warn' ? 'warn' : '');
+  document.getElementById('statusText').textContent = text;
+}
+function selectCar(id) {
+  state.selectedCar = state.selectedCar === id ? null : id;
+  renderTrainVisual(); renderDetailGrid();
+}
+function openEditCamByCar(e, carId) {
+  e.stopPropagation();
+  const cam = state.cameras.find(c => c.carId === carId);
+  if (cam) openEditCam(e, cam.id);
+  else openAddCam();
+}
+
+// ============================================================
+//  WEBCAM ENUMERATION & PREVIEW
+// ============================================================
+let _previewStream = null;
+
+async function enumerateCameras() {
+  try {
+    await navigator.mediaDevices.getUserMedia({ video: true }).then(s => s.getTracks().forEach(t => t.stop()));
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter(d => d.kind === 'videoinput');
+    const sel = document.getElementById('camDeviceIdx');
+    sel.innerHTML = '';
+    if (cams.length === 0) {
+      sel.innerHTML = '<option value="">找不到攝影機</option>';
+      showToast('找不到任何攝影機裝置', 'error'); return;
+    }
+    cams.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `攝影機 ${i}`;
+      sel.appendChild(opt);
+    });
+    showToast(`✅ 找到 ${cams.length} 個攝影機裝置`);
+    previewWebcam();
+  } catch(e) {
+    showToast('❌ 無法存取攝影機：' + e.message, 'error');
+  }
+}
+
+async function previewWebcam() {
+  const deviceId = document.getElementById('camDeviceIdx').value;
+  if (!deviceId) return;
+  if (_previewStream) { _previewStream.getTracks().forEach(t => t.stop()); _previewStream = null; }
+  const wrap = document.getElementById('webcamPreviewWrap');
+  const pv = document.getElementById('webcamPreview');
+  try {
+    _previewStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
+    pv.srcObject = _previewStream;
+    wrap.style.display = '';
+  } catch(e) {
+    wrap.style.display = 'none';
+    showToast('❌ 無法預覽：' + e.message, 'error');
+  }
+}
+
+function stopPreview() {
+  if (_previewStream) { _previewStream.getTracks().forEach(t => t.stop()); _previewStream = null; }
+  const wrap = document.getElementById('webcamPreviewWrap');
+  if (wrap) wrap.style.display = 'none';
+}
+
+// ============================================================
+//  QUICK WEBCAM
+// ============================================================
+async function quickOpenWebcam() {
+  if (!state.modelLoaded) { showToast('請先載入 YOLO 模型', 'error'); return; }
+  const btn = document.getElementById('quickWebcamBtn');
+  if (btn.dataset.active === '1') {
+    stopYoloStream();
+    if (state._quickStream) { state._quickStream.getTracks().forEach(t => t.stop()); state._quickStream = null; }
+    btn.dataset.active = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg> 電腦鏡頭`;
+    document.getElementById('yoloPanelTitle').textContent = '車廂鏡頭預覽';
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    const video = document.getElementById('yoloVideo');
+    const canvas = document.getElementById('yoloCanvas');
+    video.srcObject = stream;
+    document.getElementById('yoloOverlay').classList.add('hidden');
+    document.getElementById('yoloStartBtn').disabled = true;
+    document.getElementById('yoloStopBtn').disabled = false;
+    document.getElementById('yoloPanelTitle').textContent = '電腦鏡頭 · YOLO 推論';
+    btn.dataset.active = '1';
+    btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 停止鏡頭`;
+    btn.style.color = 'var(--color-err)';
+    btn.style.borderColor = 'oklch(from var(--color-err) l c h/.4)';
+    state._quickStream = stream;
+    _yoloActive = true; _fpsFrames = [];
+    setStatus('running', '電腦鏡頭推論中');
+
+    async function loop() {
+      if (!_yoloActive) return;
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 360;
+      if (video.readyState >= 2) {
+        const result = await runInference(video);
+        if (result) {
+          drawBoxes(canvas, result);
+          document.getElementById('yoloCount').textContent = result.count;
+          document.getElementById('yoloLatency').textContent = result.latency + ' ms';
+          const now = performance.now();
+          _fpsFrames.push(now);
+          _fpsFrames = _fpsFrames.filter(t => now - t < 1000);
+          document.getElementById('yoloFps').textContent = _fpsFrames.length;
+        }
+      }
+      state.yoloRAF = requestAnimationFrame(loop);
+    }
+    loop();
+  } catch(e) {
+    showToast('❌ 無法開啟電腦鏡頭：' + e.message, 'error');
+  }
+}
+
+// ============================================================
+//  MODAL
+// ============================================================
+function closeModal() {
+  stopPreview();
+  document.getElementById('camModal').classList.remove('open');
+}
+document.getElementById('camModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+
+// ============================================================
+//  TABS
+// ============================================================
+function switchTab(t) {
+  ['monitor','yolo','settings'].forEach(id => {
+    document.getElementById(id+'View').style.display = id === t ? '' : 'none';
+    document.getElementById('tab-'+id).classList.toggle('active', id === t);
+  });
+}
+
+// ============================================================
+//  TOAST
+// ============================================================
+function showToast(msg, type) {
+  const s = document.getElementById('toastStack');
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  if (type === 'error') t.style.borderColor = 'oklch(from var(--color-err) l c h/.4)';
+  s.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+
+// ============================================================
+//  THEME TOGGLE
+// ============================================================
+(function(){
+  const t = document.querySelector('[data-theme-toggle]'), r = document.documentElement;
+  let d = 'dark'; r.setAttribute('data-theme', d);
+  function upd() { t.innerHTML = d==='dark' ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>' : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'; }
+  upd();
+  t && t.addEventListener('click', () => { d = d==='dark'?'light':'dark'; r.setAttribute('data-theme',d); upd(); });
+})();
+
+// ============================================================
+//  BOOT
+// ============================================================
+initCars(6);
+updateHeaderMeta();
+renderTrainVisual();
+renderDetailGrid();
+renderCamList();
+updateYoloCarSel();
+updateCamCarOptions();
+startScanLoop();
+setStatus('idle', '等待模型');
+
+// 開機偵測後端裝置
+fetch('/api/device').then(r=>r.json()).then(d => {
+  let label = d.device.toUpperCase();
+  if (d.gpu_name) label += ' · ' + d.gpu_name;
+  document.getElementById('backendInfo').textContent = '🖥️ ' + label;
+  showToast('後端裝置：' + label);
+}).catch(()=>{});
+</script>
+</body>
+</html>
