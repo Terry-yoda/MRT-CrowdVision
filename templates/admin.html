@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MRT CrowdVision · 管理後台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Orbitron:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #09090b;
+  --surface:  #141416;
+  --surface2: #1e1e24;
+  --card:     #18181b;
+  --border:   #2a2a32;
+  --text:     #f4f4f5;
+  --muted:    #8a8a9a;
+  --faint:    #27272a;
+  --primary:  #3b82f6;
+  --success:  #10b981;
+  --warn:     #f59e0b;
+  --err:      #ef4444;
+  --tx: 0.2s cubic-bezier(.4,0,.2,1);
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-full: 9999px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: var(--text); min-height: 100dvh; }
+
+/* ── Login Screen ── */
+.login-wrap {
+  min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse 70% 50% at 50% 50%, rgba(59,130,246,0.08) 0%, transparent 70%);
+}
+.login-box {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl);
+  padding: 40px 36px; width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 20px;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.6);
+}
+.login-brand {
+  text-align: center;
+  font-family: 'Orbitron', monospace; font-size: 1.1rem; font-weight: 800;
+  letter-spacing: 0.1em; color: var(--primary);
+}
+.login-sub { text-align: center; font-size: 0.8rem; color: var(--muted); }
+.login-err { font-size: 0.8rem; color: var(--err); text-align: center; min-height: 1.2em; }
+
+/* ── Admin Layout ── */
+.admin-wrap { display: none; flex-direction: column; min-height: 100dvh; }
+.admin-wrap.show { display: flex; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 50;
+  gap: 16px;
+}
+.brand { font-family: 'Orbitron', monospace; font-size: 0.95rem; font-weight: 800; letter-spacing: 0.06em; }
+.brand em { color: var(--primary); font-style: normal; }
+.brand small { font-size: 0.65rem; color: var(--muted); font-family: 'Noto Sans TC', sans-serif; margin-left: 6px; font-weight: 500; letter-spacing: 0; }
+
+.tab-bar { display: flex; gap: 6px; background: var(--surface2); padding: 4px; border-radius: var(--r-lg); }
+.tab-btn {
+  padding: 7px 18px; font-size: 0.82rem; font-weight: 600; border-radius: 10px;
+  color: var(--muted); transition: var(--tx); border: none; cursor: pointer;
+  background: transparent; font-family: inherit;
+}
+.tab-btn.active { background: var(--bg); color: var(--text); }
+.tab-btn:hover:not(.active) { color: var(--text); }
+
+.admin-main { flex: 1; padding: 24px; max-width: 960px; width: 100%; margin: 0 auto; }
+
+/* ── Section ── */
+.section { background: var(--card); border: 1px solid var(--border); border-radius: var(--r-xl); padding: 20px; display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; }
+.section-header { display: flex; align-items: center; justify-content: space-between; }
+.section-title { font-size: 0.9rem; font-weight: 700; }
+.section-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+
+/* ── Form ── */
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media(max-width: 520px) { .form-row { grid-template-columns: 1fr; } }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-label { font-size: 0.73rem; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; }
+.form-input, .form-select {
+  padding: 10px 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--r-md); font-size: 0.85rem; color: var(--text);
+  outline: none; transition: border-color var(--tx); font-family: inherit;
+}
+.form-input:focus, .form-select:focus { border-color: var(--primary); }
+.form-select option { background: var(--bg); }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 18px; font-size: 0.83rem; font-weight: 700; border-radius: var(--r-md);
+  transition: var(--tx); border: none; cursor: pointer; font-family: inherit; white-space: nowrap;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--faint); }
+.btn-danger { background: rgba(239,68,68,0.12); color: var(--err); border: 1px solid rgba(239,68,68,0.2); }
+.btn-danger:hover { background: rgba(239,68,68,0.2); }
+.btn-sm { padding: 5px 10px; font-size: 0.75rem; border-radius: 6px; }
+.btn-success { background: rgba(16,185,129,0.12); color: var(--success); border: 1px solid rgba(16,185,129,0.2); }
+.btn-success:hover { background: rgba(16,185,129,0.22); }
+
+/* ── Toggle ── */
+.toggle { position: relative; width: 44px; height: 24px; min-width: 44px; display: inline-block; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-track { position: absolute; inset: 0; background: var(--surface2); border-radius: var(--r-full); cursor: pointer; transition: var(--tx); border: 1px solid var(--border); }
+.toggle input:checked + .toggle-track { background: var(--primary); border-color: transparent; }
+.toggle-thumb { position: absolute; top: 4px; left: 4px; width: 14px; height: 14px; background: #fff; border-radius: var(--r-full); transition: var(--tx); pointer-events: none; }
+.toggle input:checked ~ .toggle-thumb { transform: translateX(20px); }
+
+/* ── Status badge ── */
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: var(--r-full); font-size: 0.72rem; font-weight: 700; }
+.badge-online  { background: rgba(16,185,129,0.12); color: var(--success); }
+.badge-offline { background: rgba(107,107,130,0.12); color: var(--muted); }
+.badge-warn    { background: rgba(245,158,11,0.12);  color: var(--warn); }
+
+/* ── Camera cards ── */
+.cam-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 12px; }
+.cam-card {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.cam-card-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.cam-title { font-size: 0.85rem; font-weight: 700; }
+.cam-src { font-size: 0.7rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; margin-top: 2px; }
+.cam-stats { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); border-top: 1px solid var(--border); padding-top: 8px; }
+.cam-count { font-weight: 700; color: var(--primary); }
+
+/* ── Slider ── */
+.slider { width: 100%; accent-color: var(--primary); }
+
+/* ── Car number display ── */
+.car-preview {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.car-pip {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700; color: var(--muted);
+}
+.car-pip.active { background: rgba(59,130,246,0.15); border-color: var(--primary); color: var(--primary); }
+
+/* ── Line colour dot ── */
+.line-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity var(--tx); z-index: 100;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--r-xl);
+  padding: 24px; width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 16px;
+  margin: 16px;
+}
+
+/* ── Toast ── */
+.toast-stack { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 200; pointer-events: none; }
+.toast {
+  background: var(--surface2); border: 1px solid var(--border); padding: 11px 18px;
+  border-radius: var(--r-md); font-size: 0.8rem;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  animation: slideIn 0.3s ease;
+}
+@keyframes slideIn { from { transform: translateX(100px); opacity: 0; } }
+.toast.err { border-left: 3px solid var(--err); }
+
+/* ── Divider ── */
+.divider { border: none; border-top: 1px solid var(--border); }
+
+@media(max-width: 600px) {
+  .topbar { flex-wrap: wrap; padding: 10px 14px; }
+  .tab-btn { padding: 6px 12px; font-size: 0.78rem; }
+  .admin-main { padding: 14px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Login Screen ── -->
+<div class="login-wrap" id="loginWrap">
+  <div class="login-box">
+    <div class="login-brand">MRT CrowdVision</div>
+    <div class="login-sub">管理後台 · 請先驗證身份</div>
+    <div class="form-group">
+      <label class="form-label">管理員密碼</label>
+      <input type="password" class="form-input" id="loginPw" placeholder="輸入密碼"
+             onkeydown="if(event.key==='Enter') doLogin()">
+    </div>
+    <div class="login-err" id="loginErr"></div>
+    <button class="btn btn-primary" onclick="doLogin()">登入</button>
+  </div>
+</div>
+
+<!-- ── Admin Panel ── -->
+<div class="admin-wrap" id="adminWrap">
+
+  <header class="topbar">
+    <div class="brand">MRT <em>CrowdVision</em><small>管理後台</small></div>
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-station" onclick="switchTab('station')">車站設定</button>
+      <button class="tab-btn" id="tab-cameras" onclick="switchTab('cameras')">鏡頭管理</button>
+      <button class="tab-btn" id="tab-ai" onclick="switchTab('ai')">AI 推論</button>
+      <button class="tab-btn" id="tab-sys" onclick="switchTab('sys')">系統</button>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()">登出</button>
+  </header>
+
+  <main class="admin-main">
+
+    <!-- ── Tab: Station ── -->
+    <div id="view-station">
+
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">捷運站設定</div>
+            <div class="section-sub">設定前端顯示的車站與路線資訊</div>
+          </div>
+          <span class="badge badge-online" id="frontendBadge">前端運行中</span>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">捷運站名稱</label>
+            <input type="text" class="form-input" id="cfgStation" placeholder="例如：忠孝復興">
+          </div>
+          <div class="form-group">
+            <label class="form-label">路線</label>
+            <select class="form-select" id="cfgLine" onchange="onLineChange()">
+              <!-- Populated by JS -->
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">車廂節數（預設依路線自動填入）</label>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <input type="number" class="form-input" id="cfgCars" min="2" max="10" style="width:80px;">
+            <div class="car-preview" id="carPreview"></div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="saveStationConfig()">儲存設定</button>
+          <button class="btn btn-ghost" onclick="loadStationConfig()">重新載入</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <div class="section-title">路線資訊一覽</div>
+        </div>
+        <div id="linesList" style="display:flex; flex-direction:column; gap:8px;">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Tab: Cameras ── -->
+    <div id="view-cameras" style="display:none;">
+
+      <!-- 方向 A -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">
+              <span id="dirLabelA" style="color:var(--primary);">方向 A</span>
+              鏡頭管理
+            </div>
+            <div class="section-sub" id="dirSubA">最多可配置 6 個車廂鏡頭（往方向A）</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openCamModal('A')">+ 新增鏡頭</button>
+        </div>
+        <div class="cam-grid" id="camGridA">
+          <div style="color:var(--muted); font-size:0.8rem; padding: 8px 0;">尚未配置任何鏡頭端點。</div>
+        </div>
+      </div>
+
+      <!-- 方向 B -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">
+              <span id="dirLabelB" style="color:var(--primary);">方向 B</span>
+              鏡頭管理
+            </div>
+            <div class="section-sub" id="dirSubB">最多可配置 6 個車廂鏡頭（往方向B）</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openCamModal('B')">+ 新增鏡頭</button>
+        </div>
+        <div class="cam-grid" id="camGridB">
+          <div style="color:var(--muted); font-size:0.8rem; padding: 8px 0;">尚未配置任何鏡頭端點。</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title" style="margin-bottom:8px;">AI 推論參數</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">信心閾值 (Confidence): <strong id="confLabel">50%</strong></label>
+            <input type="range" class="slider" min="10" max="95" value="50" id="inpConf"
+              oninput="document.getElementById('confLabel').innerText=this.value+'%'"
+              onchange="updateSettings()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">NMS IoU 覆蓋度: <strong id="iouLabel">0.45</strong></label>
+            <input type="range" class="slider" min="10" max="90" value="45" id="inpIou"
+              oninput="document.getElementById('iouLabel').innerText=(this.value/100).toFixed(2)"
+              onchange="updateSettings()">
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Tab: AI ── -->
+    <div id="view-ai" style="display:none;">
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">YOLO 推論引擎</div>
+            <div class="section-sub">載入模型並啟動後台 AI 辨識</div>
+          </div>
+          <span class="badge badge-offline" id="modelStatusBadge">未載入</span>
+        </div>
+        <div style="font-size:0.8rem; color:var(--muted); line-height:1.7;">
+          模型路徑已預設於 <code style="background:var(--faint);padding:2px 6px;border-radius:4px;font-size:0.75rem;">app.py</code> 中的
+          <code style="background:var(--faint);padding:2px 6px;border-radius:4px;font-size:0.75rem;">DEFAULT_MODEL_PATH</code>。<br>
+          點擊「載入模型」以初始化 YOLOv12 並執行熱身推論。
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="loadModelBtn" onclick="loadModel()">載入模型</button>
+          <span id="deviceLabel" style="font-size:0.78rem; color:var(--muted);"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tab: System ── -->
+    <div id="view-sys" style="display:none;">
+      <div class="section">
+        <div class="section-title" style="margin-bottom:4px;">變更管理員密碼</div>
+        <div class="section-sub" style="margin-bottom:14px;">密碼以 PBKDF2-SHA256 加密儲存於 password.txt</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">目前密碼</label>
+            <input type="password" class="form-input" id="oldPw" placeholder="舊密碼">
+          </div>
+          <div class="form-group">
+            <label class="form-label">新密碼（至少 6 字元）</label>
+            <input type="password" class="form-input" id="newPw" placeholder="新密碼">
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="changePassword()">更新密碼</button>
+      </div>
+
+      <div class="section">
+        <div class="section-title" style="margin-bottom:8px;">系統資訊</div>
+        <div style="font-size:0.8rem; color:var(--muted); line-height:1.9;">
+          <div>系統名稱：<strong style="color:var(--text);">MRT CrowdVision</strong></div>
+          <div>後端框架：<strong style="color:var(--text);">Flask + OpenCV + YOLOv12 (Ultralytics)</strong></div>
+          <div>密碼加密：<strong style="color:var(--text);">PBKDF2-SHA256 · 260,000 iterations</strong></div>
+          <div>前端位址：<a href="/" target="_blank" style="color:var(--primary);">/ (首頁)</a></div>
+        </div>
+        <hr class="divider">
+        <button class="btn btn-danger btn-sm" onclick="doLogout()">登出後台</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Camera Modal -->
+<div class="modal-overlay" id="camModal" onclick="if(event.target===this)closeCamModal()">
+  <div class="modal">
+    <div style="font-size:0.95rem; font-weight:700;">配置視訊端點</div>
+    <div class="form-group">
+      <label class="form-label">列車方向</label>
+      <select class="form-select" id="modalDirection" onchange="onModalDirChange()">
+        <option value="A" id="modalDirOptA">方向 A（往──）</option>
+        <option value="B" id="modalDirOptB">方向 B（往──）</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">指派車廂</label>
+      <select class="form-select" id="modalCarId"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">來源類型</label>
+      <select class="form-select" id="modalSrcType" onchange="updateModalUI()">
+        <option value="folder">本機圖片資料夾（每5秒換圖）</option>
+        <option value="webcam">電腦攝影機 (Webcam)</option>
+        <option value="url">網路串流 URL (RTSP/HTTP)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label" id="modalInputLabel">資料夾絕對路徑</label>
+      <input type="text" class="form-input" id="modalInput" placeholder="例如: D:\Dataset\mrt_images">
+    </div>
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeCamModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveCamera()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toasts"></div>
+
+<script>
+// ────────────────────────────────
+// Auth
+// ────────────────────────────────
+async function doLogin() {
+  const pw  = document.getElementById('loginPw').value;
+  const err = document.getElementById('loginErr');
+  err.textContent = '';
+  try {
+    const res  = await fetch('/api/admin/login', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ password: pw })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      document.getElementById('loginWrap').style.display = 'none';
+      document.getElementById('adminWrap').classList.add('show');
+      initAdmin();
+    } else {
+      err.textContent = data.error || '登入失敗';
+    }
+  } catch(e) {
+    err.textContent = '無法連線至伺服器';
+  }
+}
+
+async function doLogout() {
+  await fetch('/api/admin/logout', { method: 'POST' });
+  location.reload();
+}
+
+// Check if already logged in
+(async () => {
+  const res  = await fetch('/api/admin/check');
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById('loginWrap').style.display = 'none';
+    document.getElementById('adminWrap').classList.add('show');
+    initAdmin();
+  }
+})();
+
+// ────────────────────────────────
+// Tab switching
+// ────────────────────────────────
+const TABS = ['station','cameras','ai','sys'];
+function switchTab(t) {
+  TABS.forEach(id => {
+    document.getElementById(`view-${id}`).style.display = id === t ? '' : 'none';
+    document.getElementById(`tab-${id}`).classList.toggle('active', id === t);
+  });
+  if (t === 'cameras') syncCameras();
+  if (t === 'ai')      syncAI();
+}
+
+// ────────────────────────────────
+// Station config
+// ────────────────────────────────
+let allLines   = {};
+let localState = { cameras: [], cars: [] };
+
+async function loadLines() {
+  const res  = await fetch('/api/admin/lines');
+  allLines   = await res.json();
+
+  const sel = document.getElementById('cfgLine');
+  sel.innerHTML = Object.entries(allLines).map(([id, l]) =>
+    `<option value="${id}"><span class="line-dot" style="background:${l.color}"></span>${l.name}（${id}）</option>`
+  ).join('');
+
+  // List
+  const list = document.getElementById('linesList');
+  list.innerHTML = Object.entries(allLines).map(([id, l]) => `
+    <div style="display:flex; align-items:center; gap:12px; padding:8px 10px; background:var(--surface2); border-radius:10px; border:1px solid var(--border);">
+      <span style="width:10px;height:10px;border-radius:50%;background:${l.color};flex-shrink:0;"></span>
+      <strong style="font-size:0.85rem; min-width:90px;">${l.name}</strong>
+      <span style="font-size:0.75rem; color:var(--muted);">${l.directions.join(' ⟷ ')}</span>
+      <span style="margin-left:auto; font-size:0.72rem; background:var(--faint); border-radius:6px; padding:2px 8px; color:var(--muted);">${l.cars} 節</span>
+    </div>
+  `).join('');
+}
+
+async function loadStationConfig() {
+  const res  = await fetch('/api/admin/station_config');
+  const data = await res.json();
+  document.getElementById('cfgStation').value = data.station_name || '';
+  document.getElementById('cfgLine').value    = data.line_id || 'BL';
+  document.getElementById('cfgCars').value    = data.cars || 6;
+  updateCarPreview(data.cars || 6);
+  // 同步方向名稱到 localState，讓鏡頭管理 UI 可以使用
+  const line = allLines[data.line_id];
+  if (line) {
+    localState.dirNames = line.directions;
+    localState.cars     = data.cars || line.cars;
+  }
+}
+
+function onLineChange() {
+  const id = document.getElementById('cfgLine').value;
+  const l  = allLines[id];
+  if (l) {
+    document.getElementById('cfgCars').value = l.cars;
+    updateCarPreview(l.cars);
+    // 立刻更新 localState，讓鏡頭 UI 的方向標籤即時反映
+    localState.dirNames = l.directions;
+    localState.cars     = l.cars;
+  }
+}
+
+async function saveStationConfig() {
+  const payload = {
+    station_name: document.getElementById('cfgStation').value.trim(),
+    line_id:      document.getElementById('cfgLine').value,
+    cars:         parseInt(document.getElementById('cfgCars').value),
+  };
+  const res = await fetch('/api/admin/station_config', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  if (res.ok) {
+    // 儲存成功後同步方向名稱，確保鏡頭管理 UI 顯示最新終點站
+    const line = allLines[payload.line_id];
+    if (line) {
+      localState.dirNames = line.directions;
+      localState.cars     = payload.cars || line.cars;
+    }
+    showToast('車站設定已儲存 ✓');
+  } else {
+    showToast('儲存失敗', true);
+  }
+}
+function updateCarPreview(n) {
+  const p = document.getElementById('carPreview');
+  p.innerHTML = Array.from({length: n}, (_,i) =>
+    `<div class="car-pip active">C${i+1}</div>`
+  ).join('');
+}
+document.getElementById('cfgCars').addEventListener('input', function() {
+  updateCarPreview(parseInt(this.value) || 0);
+});
+
+// ────────────────────────────────
+// Cameras
+// ────────────────────────────────
+// 從 localState 中，依方向篩選鏡頭
+function camsForDir(dir) {
+  return (localState.cameras || []).filter(c => c.direction === dir);
+}
+
+// 取得該方向已使用的 carId 集合
+function usedIdsForDir(dir) {
+  return camsForDir(dir).map(c => c.carId);
+}
+
+function renderCamGrid(dir) {
+  const cams = camsForDir(dir);
+  const grid = document.getElementById(`camGrid${dir}`);
+  if (!grid) return;
+
+  // 更新副標題（方向名稱）
+  const line      = (localState.line || {});
+  const dirNames  = localState.dirNames || ['方向A', '方向B'];
+  const dirName   = dir === 'A' ? dirNames[0] : dirNames[1];
+  const labelEl   = document.getElementById(`dirLabel${dir}`);
+  const subEl     = document.getElementById(`dirSub${dir}`);
+  if (labelEl) labelEl.textContent = dirName;
+  if (subEl)   subEl.textContent   = `最多可配置 ${localState.cars || 6} 個車廂鏡頭（往 ${dirName}）`;
+  // Modal option 文字
+  const optEl = document.getElementById(`modalDirOpt${dir}`);
+  if (optEl) optEl.textContent = `方向 ${dir}（往 ${dirName}）`;
+
+  if (cams.length === 0) {
+    grid.innerHTML = `<div style="color:var(--muted);font-size:0.8rem;padding:8px 0;">尚未配置任何鏡頭端點。</div>`;
+    return;
+  }
+
+  grid.innerHTML = cams.map(cam => `
+    <div class="cam-card">
+      <div class="cam-card-head">
+        <div>
+          <div class="cam-title">第 ${cam.carId} 節車廂</div>
+          <div class="cam-src">${cam.type === 'folder' ? '📁 ' + cam.src : cam.type === 'url' ? '🔗 ' + cam.src : '📹 Webcam'}</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" ${cam.online ? 'checked' : ''}
+            onchange="apiCamera('toggle','${dir}',${cam.carId},this.checked)">
+          <div class="toggle-track"></div><div class="toggle-thumb"></div>
+        </label>
+      </div>
+      <div class="cam-stats">
+        <span>檢出: <span class="cam-count">${cam.count}</span> 人</span>
+        <span>${cam.latency} ms</span>
+        <button class="btn btn-danger btn-sm"
+          onclick="apiCamera('remove','${dir}',${cam.carId})">移除</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function syncCameras() {
+  const res  = await fetch('/api/admin/state');
+  const data = await res.json();
+  // 車廂節數：優先取後端回傳的 cars_A/cars_B 長度，若都是 0 則保留舊值（避免初始空陣列把節數清掉）
+  const backendCars = Math.max((data.cars_A || []).length, (data.cars_B || []).length);
+  localState = {
+    ...data,
+    cars:     backendCars > 0 ? backendCars : (localState.cars || 6),
+    dirNames: localState.dirNames || ['方向A', '方向B'],
+  };
+
+  document.getElementById('inpConf').value = Math.round(data.conf * 100);
+  document.getElementById('confLabel').textContent = Math.round(data.conf * 100) + '%';
+  document.getElementById('inpIou').value  = Math.round(data.iou * 100);
+  document.getElementById('iouLabel').textContent  = data.iou.toFixed(2);
+
+  renderCamGrid('A');
+  renderCamGrid('B');
+}
+
+async function apiCamera(action, dir, carId, online = false) {
+  await fetch('/api/admin/camera', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ action, direction: dir, carId, online })
+  });
+  syncCameras();
+}
+
+function onModalDirChange() {
+  const dir       = document.getElementById('modalDirection').value;
+  const totalCars = localState.cars || 6;
+  const usedIds   = usedIdsForDir(dir);
+  const free      = Array.from({length: totalCars}, (_, i) => i + 1)
+                        .filter(id => !usedIds.includes(id));
+  const sel = document.getElementById('modalCarId');
+  if (!free.length) {
+    sel.innerHTML = `<option disabled>此方向所有車廂已分配</option>`;
+  } else {
+    sel.innerHTML = free.map(id => `<option value="${id}">第 ${id} 節車廂</option>`).join('');
+  }
+  // 同步更新方向標籤文字
+  const dirNames = localState.dirNames || ['方向A', '方向B'];
+  const dirName  = dir === 'A' ? dirNames[0] : dirNames[1];
+  const optA = document.getElementById('modalDirOptA');
+  const optB = document.getElementById('modalDirOptB');
+  if (optA) optA.textContent = `方向 A（往 ${dirNames[0]}）`;
+  if (optB) optB.textContent = `方向 B（往 ${dirNames[1]}）`;
+}
+
+function openCamModal(dir) {
+  // 先把兩個 option 文字更新成目前路線的終點站名
+  const dirNames = localState.dirNames || ['方向A', '方向B'];
+  const optA = document.getElementById('modalDirOptA');
+  const optB = document.getElementById('modalDirOptB');
+  if (optA) optA.textContent = `方向 A（往 ${dirNames[0]}）`;
+  if (optB) optB.textContent = `方向 B（往 ${dirNames[1]}）`;
+
+  document.getElementById('modalDirection').value = dir;
+  document.getElementById('modalSrcType').value   = 'folder';
+  updateModalUI();
+  onModalDirChange();   // 計算可用車廂（統一由這裡處理）
+  document.getElementById('camModal').classList.add('open');
+}
+function closeCamModal() { document.getElementById('camModal').classList.remove('open'); }
+
+function updateModalUI() {
+  const type = document.getElementById('modalSrcType').value;
+  const lbl  = document.getElementById('modalInputLabel');
+  const inp  = document.getElementById('modalInput');
+  if (type === 'folder') { lbl.textContent = '本機圖片資料夾絕對路徑'; inp.placeholder = '例如: D:\\Dataset\\mrt_images'; }
+  else if (type === 'url') { lbl.textContent = '影像串流 URL'; inp.placeholder = 'rtsp://192.168...'; }
+  else { lbl.textContent = '裝置通道識別碼（留空為預設）'; inp.placeholder = '預設 0'; }
+}
+
+async function saveCamera() {
+  const dir   = document.getElementById('modalDirection').value;
+  const carId = parseInt(document.getElementById('modalCarId').value);
+  if (!carId) { showToast('此方向無可用車廂', true); return; }
+  const type  = document.getElementById('modalSrcType').value;
+  let   src   = document.getElementById('modalInput').value.trim();
+  if (type === 'webcam' && !src) src = '0';
+  if (type !== 'webcam' && !src) { showToast('請填入路徑', true); return; }
+  await fetch('/api/admin/camera', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ action: 'add', direction: dir, carId, type, src })
+  });
+  closeCamModal();
+  showToast(`方向${dir} C${carId} 端點已建立 ✓`);
+  syncCameras();
+}
+
+async function updateSettings() {
+  const conf = document.getElementById('inpConf').value / 100;
+  const iou  = document.getElementById('inpIou').value / 100;
+  await fetch('/api/admin/settings', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ conf, iou })
+  });
+}
+
+// ────────────────────────────────
+// AI
+// ────────────────────────────────
+async function syncAI() {
+  const res  = await fetch('/api/admin/state');
+  const data = await res.json();
+  const badge = document.getElementById('modelStatusBadge');
+  badge.textContent = data.modelReady ? 'AI 運行中' : '未載入';
+  badge.className   = 'badge ' + (data.modelReady ? 'badge-online' : 'badge-offline');
+}
+
+async function loadModel() {
+  const btn = document.getElementById('loadModelBtn');
+  btn.disabled = true; btn.textContent = '載入中…';
+  try {
+    const res  = await fetch('/api/admin/load', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`模型載入成功 ✓ · 裝置: ${data.device}`);
+      document.getElementById('deviceLabel').textContent = '運算裝置: ' + data.device;
+      syncAI();
+    } else {
+      showToast('載入失敗: ' + (data.error || '未知錯誤'), true);
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = '載入模型';
+  }
+}
+
+// ────────────────────────────────
+// Password
+// ────────────────────────────────
+async function changePassword() {
+  const old_password = document.getElementById('oldPw').value;
+  const new_password = document.getElementById('newPw').value;
+  const res  = await fetch('/api/admin/change_password', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ old_password, new_password })
+  });
+  const data = await res.json();
+  if (res.ok) {
+    showToast('密碼已更新 ✓');
+    document.getElementById('oldPw').value = '';
+    document.getElementById('newPw').value = '';
+  } else {
+    showToast(data.error || '更新失敗', true);
+  }
+}
+
+// ────────────────────────────────
+// Toast
+// ────────────────────────────────
+function showToast(msg, isErr = false) {
+  const stack = document.getElementById('toasts');
+  const t = document.createElement('div');
+  t.className = 'toast' + (isErr ? ' err' : '');
+  t.textContent = msg;
+  stack.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+// ────────────────────────────────
+// Auto-sync helpers (後台定時刷新)
+// ────────────────────────────────
+async function fetchCrowd()   { await syncCameras(); }
+async function fetchStation() { /* 車站設定不需要即時刷新 */ }
+
+// ────────────────────────────────
+// Init
+// ────────────────────────────────
+async function initAdmin() {
+  await loadLines();
+  await loadStationConfig();   // 這裡會設好 localState.dirNames 和 localState.cars
+  // 額外從公開 API 再確認一次（station_config API 需要登入，公開 API 不用，雙重保險）
+  try {
+    const st = await fetch('/api/public/station').then(r => r.json());
+    localState.dirNames = st.directions || localState.dirNames || ['方向A', '方向B'];
+    if (!localState.cars || localState.cars === 0) localState.cars = st.cars || 6;
+  } catch(e) {}
+  setInterval(fetchCrowd, 5000);
+  setInterval(fetchStation, 5000);
+}
+</script>
+</body>
+</html>
