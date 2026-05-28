@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>MRT CrowdVision</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="icon" type="image/x-icon" href="tabicon.ico">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -281,7 +282,7 @@ body::before {
         <div class="dir-inner">
           <div class="dir-header">
             <div class="dir-label">往</div>
-            <span class="model-badge offline" id="modelBadgeB">辨識離線</span>
+            <span class="model-badge offline" id="modelBadgeB">離線中</span>
           </div>
           <div class="dir-dest">
             <span id="destB">──</span>
@@ -316,7 +317,7 @@ body::before {
     <!-- Summary stats -->
     <div class="stats-row">
       <div class="stat-tile">
-        <div class="stat-lbl">全車總人數</div>
+        <div class="stat-lbl">總人數</div>
         <div class="stat-val" id="statTotal" style="color:var(--line-col);">--</div>
         <div class="stat-sub">乘客 人</div>
       </div>
@@ -513,7 +514,7 @@ async function fetchCrowd() {
 
     const modelReady = data.modelReady;
     const cls = 'model-badge' + (modelReady ? '' : ' offline');
-    const lbl = modelReady ? 'AI 辨識中' : '辨識離線';
+    const lbl = modelReady ? '上線中' : '離線中';
     document.getElementById('modelBadgeA').textContent = lbl;
     document.getElementById('modelBadgeA').className   = cls;
     document.getElementById('modelBadgeB').textContent = lbl;

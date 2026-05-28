@@ -1,7 +1,7 @@
 import os, time, threading, glob, hashlib, base64, secrets, json
 import cv2
 import numpy as np
-from flask import Flask, render_template, request, jsonify, Response, session
+from flask import Flask, render_template, request, jsonify, Response, session, send_from_directory
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
@@ -302,6 +302,11 @@ def admin_required(f):
             return jsonify({'error': 'unauthorized'}), 401
         return f(*args, **kwargs)
     return decorated
+
+
+@app.route('/tabicon.ico')
+def favicon():
+    return send_from_directory('static', 'tabicon.ico', mimetype='image/x-icon')
 
 # ==========================================
 # 公開路由
